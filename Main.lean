@@ -101,7 +101,6 @@ def runFromDbCmd (p : Parsed) : IO UInt32 := do
 
   let db ← openForReading dbPath builtinDocstringValues
   let existingModules ← db.getModuleNames packageDirs?
-  let existingSet := Std.HashSet.ofArray existingModules
 
   -- Determine which modules to generate HTML for
   let targetModules ←
@@ -110,14 +109,23 @@ def runFromDbCmd (p : Parsed) : IO UInt32 := do
     else
       db.getTransitiveImports moduleRoots
 
-  -- Load linking context (source URLs, declaration locations). It covers the modules whose source
-  -- files exist, and every module that this run renders: each page links to its own declarations.
+  -- Load linking context (source URLs, declaration locations). It covers the modules that have a
+  -- page after the run, so that every link resolves: the modules that this run renders, and the
+  -- modules whose source files exist and whose pages are already on disk.
+  let targetSet := Std.HashSet.ofArray targetModules
+  let linkedExisting ←
+    if packageDirs?.isNone then
+      pure existingModules
+    else
+      let onDisk := Std.HashSet.ofArray (← scanModuleHtmlFiles (basePath buildDir))
+      pure <| existingModules.filter onDisk.contains
   let linkCtx ← db.loadLinkingContext
-    (existingModules ++ targetModules.filter (!existingSet.contains ·))
+    (targetModules ++ linkedExisting.filter (!targetSet.contains ·))
   let linkedModules := Std.HashSet.ofArray linkCtx.moduleNames
 
   -- Sanity check: every rendered module has a source file.
   if let some packageDirs := packageDirs? then
+    let existingSet := Std.HashSet.ofArray existingModules
     let sources := Std.HashMap.ofList (← db.getModules).toList
     for mod in targetModules do
       unless existingSet.contains mod do

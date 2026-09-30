@@ -13,7 +13,11 @@
 #   * after a module's source file is deleted, links, the tactic list, the
 #     navigation bar, the search index and the header data point only to
 #     modules whose source files exist;
-#   * the header data follows added, removed and moved declarations.
+#   * the header data follows added, removed and moved declarations;
+#   * after a module leaves the import closure and its page is removed, no
+#     page links to it;
+#   * a library that moves its sources, with no change to any file, builds its
+#     HTML.
 #
 # Usage: run from the doc-gen4 repo root (or pass it as $1).
 #   ./test/test-multi-lib-docs.sh
@@ -333,5 +337,42 @@ else
 fi
 check_header_data "libDThm libAGreeting" "libDGone"
 check_up_to_date LibA LibB LibC
+
+# --- Phase 9: a module leaves the import closure, and its source file stays ---
+
+echo "=== Importing LibD.Extra, then removing the import and the page of LibD.Extra ==="
+cat > "$TEST_DIR/LibD/Extra.lean" << 'EOF'
+/-- A declaration of LibD.Extra. -/
+def libDExtra := "extra from D"
+EOF
+cat > "$TEST_DIR/LibD/New.lean" << 'EOF'
+/-- A theorem of LibD, moved here from `LibD.Old`. See also `libDExtra`. -/
+def libDThm := "theorem of D"
+EOF
+printf 'import LibD.New\nimport LibD.Extra\n' > "$TEST_DIR/LibD.lean"
+(cd "$TEST_DIR" && lake build LibC:docs)
+check_html LibD/Extra
+printf 'import LibD.New\n' > "$TEST_DIR/LibD.lean"
+rm "$DOC_DIR/LibD/Extra.html"
+(cd "$TEST_DIR" && lake build LibC:docs)
+if links=$(grep -rl 'LibD/Extra.html' "$DOC_DIR"); then
+  echo "FAIL: these pages link to LibD/Extra.html, which does not exist:"
+  echo "$links"
+  exit 1
+else
+  echo "OK: no page links to LibD/Extra.html"
+fi
+
+# --- Phase 10: a library moves its sources, and no file changes ---
+
+echo "=== Moving LibB.lean to srcB/ and building LibB:docs again ==="
+mkdir "$TEST_DIR/srcB"
+mv "$TEST_DIR/LibB.lean" "$TEST_DIR/srcB/"
+sed -i.bak 's/^@\[default_target\] lean_lib LibB$/@[default_target] lean_lib LibB where srcDir := "srcB"/' "$TEST_DIR/lakefile.lean"
+rm "$TEST_DIR/lakefile.lean.bak"
+# Run the HTML phase of LibB.
+rm -f "$DOC_DATA_DIR"/LibB--library.docs_built*
+(cd "$TEST_DIR" && lake build LibB:docs)
+check_html LibB
 
 echo "SUCCESS: All four libraries have HTML documentation"

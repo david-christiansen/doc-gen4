@@ -514,13 +514,8 @@ def ReadDB.getModuleNames (db : ReadDB) (packageDirs? : Option PackageDirs := no
     modules.filterMapM fun (name, source) => do
       return if ← source.sourceExists packageDirs then some name else none
 
-/--
-Loads the linking context from the database. It covers the modules that
-`ReadDB.getModuleNames db packageDirs?` returns.
--/
-def ReadDB.loadLinkingContext (db : ReadDB) (packageDirs? : Option PackageDirs := none) :
-    IO LinkingContext := do
-  let moduleNames ← db.getModuleNames packageDirs?
+/-- Loads the linking context of the modules `moduleNames` from the database. -/
+def ReadDB.loadLinkingContext (db : ReadDB) (moduleNames : Array Name) : IO LinkingContext := do
   let sourceUrls ← db.getModuleSourceUrls
   let name2ModIdx ← db.buildName2ModIdx moduleNames
   return { moduleNames, sourceUrls, name2ModIdx }

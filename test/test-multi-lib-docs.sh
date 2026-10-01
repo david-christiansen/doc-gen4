@@ -14,10 +14,10 @@
 #     navigation bar, the search index and the header data point only to
 #     modules whose source files exist;
 #   * the header data follows added, removed and moved declarations;
-#   * after a module leaves the import closure and its page is removed, no
-#     page links to it;
-#   * a library that moves its sources, with no change to any file, builds its
-#     HTML.
+#   * after LibD stops importing LibD.Extra and LibD.Extra.html is deleted,
+#     a rebuild of LibC:docs removes all links to LibD.Extra;
+#   * when a library's sources are moved, but its files are unmodified, its
+#     HTML is rebuilt.
 #
 # Usage: run from the doc-gen4 repo root (or pass it as $1).
 #   ./test/test-multi-lib-docs.sh
@@ -46,7 +46,7 @@ package test
 
 require «doc-gen4» from "$DOCGEN4_DIR"
 
--- The libraries are default targets because `docsHeader` builds the default targets
+-- The libraries are default targets because docsHeader builds the default targets
 @[default_target] lean_lib LibA
 @[default_target] lean_lib LibB
 @[default_target] lean_lib LibC
@@ -338,7 +338,7 @@ fi
 check_header_data "libDThm libAGreeting" "libDGone"
 check_up_to_date LibA LibB LibC
 
-# --- Phase 9: a module leaves the import closure, and its source file stays ---
+# --- Phase 9: remove an import from LibD and delete the imported module's HTML page ---
 
 echo "=== Importing LibD.Extra, then removing the import and the page of LibD.Extra ==="
 cat > "$TEST_DIR/LibD/Extra.lean" << 'EOF'
@@ -363,16 +363,28 @@ else
   echo "OK: no page links to LibD/Extra.html"
 fi
 
-# --- Phase 10: a library moves its sources, and no file changes ---
+# --- Phase 10: move a library's sources without changing their contents ---
 
 echo "=== Moving LibB.lean to srcB/ and building LibB:docs again ==="
+check_up_to_date LibB
 mkdir "$TEST_DIR/srcB"
 mv "$TEST_DIR/LibB.lean" "$TEST_DIR/srcB/"
 sed -i.bak 's/^@\[default_target\] lean_lib LibB$/@[default_target] lean_lib LibB where srcDir := "srcB"/' "$TEST_DIR/lakefile.lean"
 rm "$TEST_DIR/lakefile.lean.bak"
-# Run the HTML phase of LibB.
-rm -f "$DOC_DATA_DIR"/LibB--library.docs_built*
+if (cd "$TEST_DIR" && lake build LibB:docs --no-build); then
+  echo "FAIL: LibB:docs is up to date after its source file moved"
+  exit 1
+else
+  echo "OK: LibB:docs needs a rebuild after its source file moved"
+fi
 (cd "$TEST_DIR" && lake build LibB:docs)
 check_html LibB
+if grep -q 'srcB/LibB.lean' "$DOC_DIR/LibB.html"; then
+  echo "OK: the page of LibB links to the moved source file"
+else
+  echo "FAIL: the page of LibB does not link to srcB/LibB.lean"
+  exit 1
+fi
+check_up_to_date LibB
 
 echo "SUCCESS: All four libraries have HTML documentation"

@@ -109,9 +109,9 @@ def runFromDbCmd (p : Parsed) : IO UInt32 := do
     else
       db.getTransitiveImports moduleRoots
 
-  -- Load linking context (source URLs, declaration locations). It covers the modules that have a
-  -- page after the run, so that every link resolves: the modules that this run renders, and the
-  -- modules whose source files exist and whose pages are already on disk.
+  -- Load source URLs and declaration locations for the modules selected for HTML generation.
+  -- With a package map, also include modules that pass the source check and have HTML pages on disk.
+  -- Without a package map, include every module in the database.
   let targetSet := Std.HashSet.ofArray targetModules
   let linkedExisting ←
     if packageDirs?.isNone then
@@ -123,7 +123,7 @@ def runFromDbCmd (p : Parsed) : IO UInt32 := do
     (targetModules ++ linkedExisting.filter (!targetSet.contains ·))
   let linkedModules := Std.HashSet.ofArray linkCtx.moduleNames
 
-  -- Sanity check: every rendered module has a source file.
+  -- With a package map, warn when a target module fails the source check.
   if let some packageDirs := packageDirs? then
     let existingSet := Std.HashSet.ofArray existingModules
     let sources := Std.HashMap.ofList (← db.getModules).toList

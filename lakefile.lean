@@ -298,9 +298,9 @@ module_facet docInfo (mod) : FilePath := do
       bibPrepassJob.bindM fun _ => do
         exeJob.bindM fun exeFile => do
           modJob.mapM fun _ => do
-            -- Lake traces a source file by its content, not its path. The database records the
-            -- package and the path of the source file, so a change to either must run the analysis
-            -- again.
+            -- Lake traces a source file by its content, not its path.
+            -- The database records its package name and source path.
+            -- Trace both values so Lake repeats analysis when either changes.
             addPureTrace pkgName "package"
             addPureTrace srcPath "source path"
             buildFileUnlessUpToDate' markerFile do

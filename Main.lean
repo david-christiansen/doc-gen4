@@ -99,34 +99,43 @@ def runFromDbCmd (p : Parsed) : IO UInt32 := do
   -- Flush WAL so the database file is self-contained for concurrent readers
   walCheckpoint dbPath
 
-  -- Load linking context (names of modules whose source files exist, source URLs, declaration
-  -- locations)
   let db ← openForReading dbPath builtinDocstringValues
-  let linkCtx ← db.loadLinkingContext packageDirs?
+  let existingModules ← db.getModuleNames packageDirs?
 
   -- Determine which modules to generate HTML for
   let targetModules ←
     if moduleRoots.isEmpty then
-      pure linkCtx.moduleNames
+      pure existingModules
     else
       db.getTransitiveImports moduleRoots
+
+  -- Load source URLs and declaration locations for the modules selected for HTML generation.
+  -- With a package map, also include modules that pass the source check and have HTML pages on disk.
+  -- Without a package map, include every module in the database.
+  let targetSet := Std.HashSet.ofArray targetModules
+  let linkedExisting ←
+    if packageDirs?.isNone then
+      pure existingModules
+    else
+      let onDisk := Std.HashSet.ofArray (← scanModuleHtmlFiles (basePath buildDir))
+      pure <| existingModules.filter onDisk.contains
+  let linkCtx ← db.loadLinkingContext
+    (targetModules ++ linkedExisting.filter (!targetSet.contains ·))
   let linkedModules := Std.HashSet.ofArray linkCtx.moduleNames
 
-  -- If a target is outside the linking context, then the location was recorded incorrectly.
+  -- With a package map, warn when a target module fails the source check.
   if let some packageDirs := packageDirs? then
+    let existingSet := Std.HashSet.ofArray existingModules
     let sources := Std.HashMap.ofList (← db.getModules).toList
     for mod in targetModules do
-      unless linkedModules.contains mod do
+      unless existingSet.contains mod do
         let reason := match sources[mod]? with
-          | none => "it is not found in the database"
-          | some source =>
-            match source.package? with
-            | none => "it has no package"
-            | some package =>
-              match packageDirs[package]? with
-              | none => s!"its package '{package}' is not in the package map"
-              | some dir => s!"its source file '{dir / source.path}' was not found"
-        IO.eprintln s!"warning: HTML for module '{mod}' is generated, but nothing links to it: {reason}"
+          | some { package? := some package, path } =>
+            match packageDirs[package]? with
+            | none => s!"its package '{package}' is not in the package map"
+            | some dir => s!"'{dir / path}' does not exist"
+          | _ => "it is not in the database"
+        IO.eprintln s!"warning: no source file found for rendered module '{mod}': {reason}"
 
   let baseConfig ← getSimpleBaseContext buildDir (Hierarchy.fromArray targetModules)
   -- Add `references` pseudo-module to hierarchy only when bibliography data exists

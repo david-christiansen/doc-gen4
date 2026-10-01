@@ -291,19 +291,25 @@ module_facet docInfo (mod) : FilePath := do
   -- file whose content is the hash of the dependency trace, so that the steps that depend on the
   -- marker run again when the inputs change.
   let markerFile := buildDir / "doc-data" / s!"{mod.name}.doc"
+  let pkgName := mod.pkg.baseName.toString (escape := false)
+  let srcPath := "/".intercalate (filteredPath mod.relLeanFile)
   coreJob.bindM fun _ => do
     depDocJobs.bindM fun _ => do
       bibPrepassJob.bindM fun _ => do
         exeJob.bindM fun exeFile => do
           modJob.mapM fun _ => do
+            -- Lake traces a source file by its content, not its path.
+            -- The database records its package name and source path.
+            -- Trace both values so Lake repeats analysis when either changes.
+            addPureTrace pkgName "package"
+            addPureTrace srcPath "source path"
             buildFileUnlessUpToDate' markerFile do
               let uriJob ← fetch <| mod.facet `srcUri
               let srcUri ← uriJob.await
-              let srcPath := "/".intercalate (filteredPath mod.relLeanFile)
               proc {
                 cmd := exeFile.toString
                 args := #["single", "--build", buildDir.toString,
-                  "--package", mod.pkg.baseName.toString (escape := false),
+                  "--package", pkgName,
                   "--source-path", srcPath, mod.name.toString, "api-docs.db", srcUri]
                 env := ← getAugmentedEnv
               }
